@@ -1,0 +1,264 @@
+from bs4 import BeautifulSoup
+import urllib2
+import sqlite3
+import re
+import sys
+
+def handleAskfredResult(url=None, table_conn=None, tournament_id=None):
+    """
+    Process the main Result Page
+    """
+
+    # retrieve the main page
+    try:
+        response = urllib2.urlopen(url)
+    except URLError as e:
+        print e.reason
+        return False
+
+    soup = BeautifulSoup(response, "html.parser")
+    header_tag = soup.find("h1")
+    if "Final Results:" not in header_tag.get_text():
+        print("skip...")
+        return False
+
+    table_cur = table_conn.cursor()
+    # extract tournament information and save to Tournament Table
+    tour_name = re.split("Results", soup.title.get_text())[0].strip()
+    tour_dates = None
+    td_tag = soup.find(name="div", id="results-head")
+    for child in td_tag.children:
+        tour_date = re.findall("[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}", unicode(child))
+        if tour_date:
+            tour_dates = re.split("/", tour_date[0])    
+            break
+
+    if tournament_id and tour_name and tour_dates:
+        table_cur.execute('INSERT OR REPLACE INTO tournament VALUES(?, ?, ?, ?, ?)', 
+                            (tournament_id, tour_name, tour_dates[0],
+                             tour_dates[1], tour_dates[2]))
+
+
+    # extract all fencer information and save to Fencer Table
+    tr_tag_list = soup.find_all(name="tr", class_=["evenrow", "oddrow"])
+    for tr_tag in tr_tag_list:
+        fencer_id = 0
+        name = None
+        club_name = None
+        rating = None
+        td_tag_list = tr_tag.find_all(name="td")
+        for td_tag in td_tag_list:
+            href_tag = td_tag.find_all(href=re.compile("highlight_competitor_id"))
+            club_tag = td_tag.find(name="div")
+            rating_string = td_tag.get_text()
+
+            if href_tag and len(href_tag) is 1:
+                href_string = href_tag[0].get(key="href")
+                fencer_id = href_string.rsplit("=", 1)[1]
+                name = td_tag.get_text().split(",",1)
+
+            elif club_tag is not None:
+                club_name = club_tag.get_text()
+
+            elif rating_string is not None:
+                if re.match("[A-E][0-9]{4}|U", rating_string):
+                    rating = rating_string.strip() 
+            else:
+                continue
+
+        if fencer_id and name and club_name and rating:
+            table_cur.execute('INSERT OR REPLACE INTO fencers VALUES(?, ?, ?, ?, ?)', 
+                                (fencer_id, name[1].strip(), name[0].strip(),
+                                 club_name, rating))
+
+    # follow Round Result Links and process Round Result
+    href_tag_list = soup.find_all(name="a", title=re.compile("View pool & DE round results"))
+    for href_tag in href_tag_list:
+        handlePoolResult(url=href_tag['href'], table_conn=table_conn, tournament_id=tournament_id)
+
+    # commit to database
+    table_conn.commit()
+    return True
+
+def handlePoolResult(url=None, table_conn=None, tournament_id=None):
+    """
+    Process the Pool Result Page
+    """
+
+    # extract event_id from url
+    event_id = int(url.split("event_id=")[1])
+    try:
+        response = urllib2.urlopen(url)
+    except URLError as e:
+        print e.reason
+        return False
+
+    print url
+    table_cur = table_conn.cursor()
+    the_page = response.read()
+    soup = BeautifulSoup(the_page)
+    # first find out weapon type
+    tag_list = soup.find_all("h2")
+    for tag in tag_list:
+        tmp = re.findall("Foil|Epee|Saber", tag.decode())
+        if tmp:
+            weapon_type = tmp[0]
+        else:
+            weapon_type = "Foil"
+
+        if re.search("Team", tag.decode()):
+           return 
+
+    fencer_list = None
+    # find each pool table
+    pool_table_list = soup.find_all(name="table", class_="box pool_table")
+    for pool_table in pool_table_list:
+        id_list = []
+        score_list = []
+        # find each tabe row
+        tr_tag_list = pool_table.find_all(name="tr", class_=re.compile(".*cid_[0-9]{1,10}"))
+        for tr_tag in tr_tag_list:
+            td_tag_list = tr_tag.find_all(name="td");
+            # find <a name="60467"></a>
+            for td_tag in td_tag_list:
+                id_tag = td_tag.find(name="a")
+                if id_tag:
+                    id_list.append(id_tag.get(key="name"))
+
+            # match <td class='' bgcolor=#666666 ></td><td class=''  >D0</td><td class=''  >V5</td><td class=''  >D3</td><td class=''  >V5</td>
+            score_string = tr_tag.decode()
+            scores = re.findall("D[0-9]{1,2}|V[0-9]{1,2}", score_string)
+            score_list.append(scores)
+
+        # all the data in the pool is ready, pair them to bouts
+        if len(id_list) > 0 and len(score_list) > 0:
+            id_count = len(id_list)
+            score_count = id_count - 1
+            for i in range(0, id_count):
+                for j in range(i, id_count):
+                    if i==j:
+                        continue
+                    if len(score_list[i]) == 0 or len(score_list[j]) == 0:
+                        continue
+                    table_cur.execute('INSERT OR REPLACE INTO bouts VALUES(?, ?, ?, ?, ?, ?, ?, ?)', 
+                                (id_list[i], id_list[j], score_list[i][j-1].lstrip("[V|D]"),
+                                score_list[j][i].lstrip("[V|D]"), 0, weapon_type, tournament_id, event_id))
+
+    table_conn.commit()
+    # proceed to DE chart
+    de_url = url + "&seq=2&highlight_competitor_id="
+
+    try:
+        response = urllib2.urlopen(de_url)
+    except URLError as e:
+        print e.reason
+        return False
+
+    the_page = response.read()
+    soup = BeautifulSoup(the_page)
+
+    #print(de_url)
+    de_table = None
+    tr_list = soup.find_all(name="tr")
+    for tr_tag in tr_list:
+        tr_text = tr_tag.get_text()
+        # search for "Table of xx", so I am sure this is the DE table
+        # This row is buried inside multiple levels of tr tags, so narrow it down
+        if re.search("Highlight a competitor", tr_text):
+            continue
+        if re.search(".*Gold Medal Bout.*", tr_text):
+            de_table = tr_tag.find_parent()
+            break
+
+    if de_table is None:
+        print("Warning: can not find DE table:", de_url)
+        return True
+
+    # figure out how many rounds are there
+    tr_list = de_table.find_all(name="tr")
+    tr_tag = tr_list[0]
+    td_tag = tr_tag.find_all(name="td")
+    round_number = len(td_tag) - 2
+    row_number = len(tr_list) - 1
+    
+    # go through each table row, make them a big 2-dimension array
+    raw_de_table = []
+    i = 0
+    j = 0
+    # skip first row, which is "Table of xxx" stuff
+    for i in range(1, len(tr_list)):
+        raw_de_row = [0 for _ in range(0, round_number+1)]
+        td_list = tr_list[i].find_all(name="td")
+        # last cell is not used
+        for j in range(0, len(td_list) - 1):
+            td_tag = td_list[j]
+            cid = re.split("cid_", td_tag.get("class")[1])
+            if len(cid[1]) > 0:
+                # this has a cid_fencerid
+                raw_de_row[j] = cid[1]
+            else:
+                # also look for match score field
+                a_tag = td_tag.find("a")
+                if a_tag:
+                    a_text = a_tag.get_text()
+                    if re.search("[0-9]{1,2}.*-.*[0-9]{1,2}", a_text):
+                        raw_de_row[j] = a_text.strip()
+
+        raw_de_table.append(raw_de_row)
+
+    #print raw_de_table
+    # now process each column, and match fencers to a bout
+    i = 0
+    for i in range(0, round_number):
+        j = 0
+        skip_count = 2 ** (i+1)
+        first_found = False
+        while j < row_number:
+            # both cell has a fencer id
+            if j+skip_count > len(raw_de_table):
+                break
+            if raw_de_table[j][i] != 0 and raw_de_table[j+skip_count][i] != 0:
+                # j and j+skip_count is a pair
+                # go skip_count*2 row ahead after the 1st fencer_id, we know j and j + skip_count*2
+                # is the next pair
+                # now find out what the score of this pair's match
+                # check next column between row j and j+skip_count*2, mathc the score pattern
+                fencer1_score = []
+                fencer2_score = []
+                for k in range(0, skip_count+1):
+                    score_text = raw_de_table[j+k][i+1]
+                    if score_text:
+                        search_result = re.search("[0-9]{1,2}.*-.*[0-9]{1,2}", score_text)
+                        if search_result:
+                            search_result = search_result.group(0)
+                            search_result = search_result.split(",")
+                            for l in range(0, len(search_result)):
+                                tmp_score = search_result[l].split("-")
+                                fencer1_score.append(tmp_score[0].strip())
+                                fencer2_score.append(tmp_score[1].strip())
+                            #print fencer1_score, fencer2_score
+                            break
+
+                #print(raw_de_table[j][i], raw_de_table[j+skip_count][i], fencer1_score, fencer2_score)
+                # this is the match result
+                if fencer1_score and fencer2_score:
+                    for x in range(0, len(fencer1_score)):
+                        #print(raw_de_table[j][i], raw_de_table[j+skip_count][i], fencer1_score[x], fencer2_score[x], 2**(round_number-i), weapon_type, tournament_id, event_id)
+
+                        table_cur.execute('INSERT OR REPLACE INTO bouts VALUES(?, ?, ?, ?, ?, ?, ?, ?)', 
+                                        (raw_de_table[j][i], raw_de_table[j+skip_count][i],
+                                        fencer1_score[x], fencer2_score[x], 2**(round_number-i), weapon_type,
+                                        tournament_id, event_id))
+                
+                j = j + skip_count*2
+                first_found = True
+            elif not first_found:
+                # go 1 row at a time before finding the 1st fencer_id
+                j = j + 1
+            else:
+                # go skip_count*2 row ahead after the 1st fencer_id, we know j and j + skip_count*2
+                # is the next pair
+                j = j + skip_count*2
+
+    table_conn.commit()
+    return True

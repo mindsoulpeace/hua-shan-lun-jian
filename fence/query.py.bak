@@ -1,0 +1,283 @@
+import sqlite3
+
+class Fencer:
+    def __init__(self, id, firstname, lastname, club, rating):
+        self.id = id
+        self.firstname = firstname
+        self.lastname = lastname
+        self.club = club
+        self.rating = rating
+    
+class Tournament:
+    def __init__(self, id, name, day, month, year):
+        self.tournament_id = id
+        self.tournament_name = name
+        self.tournament_day = day
+        self.tournament_month= month
+        self.tournament_year = year
+
+class Bout:
+    def __init__(self, id1, id2, score1, score2, round, weapon, tid, eid):
+        self.fencer1_id = id1
+        self.fencer2_id = id2
+        self.fencer1_score = score1
+        self.fencer2_score = score2
+        self.round = round
+        self.weapon = weapon
+        self.tournament_id = tid
+        self.event_id = eid
+
+class Stats:
+    def __init__(self):
+        self.year = 0
+        self.total_event = 0
+        self.total_bout = 0
+        self.total_de_bout = 0
+        self.total_opponent = 0
+        self.total_win = 0
+        self.total_loss = 0
+        self.total_touch = 0
+        self.total_touched = 0
+        self.place_64 = 0
+        self.place_32 = 0
+        self.place_16 = 0
+        self.place_8 = 0
+        self.place_4 = 0
+        self.place_2 = 0
+        self.place_1 = 0
+
+    def __add__(self, other):
+        self.total_event += other.total_event
+        self.total_bout += other.total_bout
+        self.total_de_bout += other.total_de_bout
+        self.total_opponent += other.total_opponent
+        self.total_win += other.total_win
+        self.total_loss += other.total_loss
+        self.total_touch += other.total_touch
+        self.total_touched += other.total_touched
+        self.place_64 += other.place_64
+        self.place_32 += other.place_32
+        self.place_16 += other.place_16
+        self.place_8 += other.place_8
+        self.place_4 += other.place_4
+        self.place_2 += other.place_2
+        self.place_1 += other.place_1
+        return self
+
+    def __iadd__(self, other):
+        self.total_event += other.total_event
+        self.total_bout += other.total_bout
+        self.total_de_bout += other.total_de_bout
+        self.total_opponent += other.total_opponent
+        self.total_win += other.total_win
+        self.total_loss += other.total_loss
+        self.total_touch += other.total_touch
+        self.total_touched += other.total_touched
+        self.place_64 += other.place_64
+        self.place_32 += other.place_32
+        self.place_16 += other.place_16
+        self.place_8 += other.place_8
+        self.place_4 += other.place_4
+        self.place_2 += other.place_2
+        self.place_1 += other.place_1
+        return self
+
+    def print_summary(self):
+        print("year: ", self.year)
+        print("Total Bout:", self.total_bout)
+        print("Total DE Bout:", self.total_de_bout)
+        print("Total_opponent:", self.total_opponent)
+        print("Total_win:", self.total_win)
+        print("Win Ratio: %.0f%%" % (100.0 * self.total_win/self.total_bout))
+        print("Total Loss:", self.total_loss)
+        print("Loss Ratio: %.0f%%" % (100.0 * self.total_loss/self.total_bout))
+        print("Total Touch:", self.total_touch)
+        print("Total Touched:", self.total_touched)
+        print("Touch Ratio:", float(self.total_touch)/float(self.total_touched))
+        print("Top 64:", self.place_64, "%.0f%%" % (100.0 * self.place_64/self.total_de_bout))
+        print("Top 32:", self.place_32, "%.0f%%" % (100.0 * self.place_32/self.total_de_bout))
+        print("Top 16:", self.place_16, "%.0f%%" % (100.0 * self.place_16/self.total_de_bout))
+        print("Top 8:", self.place_8, "%.0f%%" % (100.0 * self.place_8/self.total_de_bout))
+        print("Top 4:", self.place_4, "%.0f%%" % (100.0 * self.place_4/self.total_de_bout))
+        print("Top 2:", self.place_2, "%.0f%%" % (100.0 * self.place_2/self.total_de_bout))
+        print("First:", self.place_1, "%.0f%%" % (100.0 * self.place_1/self.total_de_bout))
+
+
+def getFencerByAskfredId(table_conn=None, fencer_id=None):
+    """get fencer record by id"""
+
+    if table_conn is None or fencer_id is None:
+        return None
+
+    table_conn.execute('SELECT * FROM fencers WHERE fencer_id=?', fencer_id) 
+
+    row = table_conn.fetchall()
+    if len(row) > 1:
+        print(("Duplicate fencer record:", row[0][1], " ", row[0][2]))
+
+    if len(row) == 0:
+        return None
+
+    return Fencer(row[0][0], row[0][1], row[0][2], row[0][3], row[0][4])
+
+def getFencerByUSFAId(table_conn=None, fencer_id=None):
+    """get fencer record by id"""
+
+    if table_conn is None or fencer_id is None:
+        return None
+
+    table_conn.execute('SELECT * FROM fencers WHERE membership_id=?', fencer_id) 
+
+    row = table_conn.fetchall()
+    if len(row) > 1:
+        print(("Duplicate fencer record:", row[0][1], " ", row[0][2]))
+
+    if len(row) == 0:
+        return None
+
+    return Fencer(row[0][0], row[0][1], row[0][2], row[0][3], row[0][4])
+
+def getFencerByName(table_cur=None, firstname=None, lastname=None, club=None):
+    """get fencer record by Name"""
+
+    if table_cur is None or firstname is None or lastname is None:
+        return None
+
+    table_cur.execute('SELECT * FROM fencers WHERE firstname=? AND lastname=? AND club=?',
+                        (firstname, lastname, club))
+
+    row = table_cur.fetchall()
+    if len(row) > 1:
+        print(row)
+
+    if len(row) == 0:
+        return None
+
+    return Fencer(row[0][0], row[0][1], row[0][2], row[0][3], row[0][4])
+
+def getTournament(table_conn=None, tournament_id=None):
+    """get tournament record by id"""
+
+    if table_conn is None or tournament_id is None:
+        return None
+
+    table_conn.execute('SELECT * FROM tournament WHERE tournament_id=?', tournament_id)
+
+    row = table_conn.fetchone()
+    if len(row) > 1:
+        print(("Duplicate tournament record:", row[0].firstname, " ", row[0].lastname))
+
+    if len(row) == 0:
+        return None
+
+    return Tournament(row[0][0], row[0][1], row[0][2], row[0][3], row[0][4])
+
+def generateReport(table_conn=None, membership_id=None, firstname=None, lastname=None, club=None):
+    """generate full report for fencer:
+       1. Fencer information
+       2. Overall statistics: current usfa ranking
+          how many tournaments/events attended;
+          how many bouts fenced; how many distinct opponents;
+          how many win/loss; win ratio; how many touch/touched;
+          place finished top64: 15 times, ratio, for example
+       3. group 2. by year
+       4. By each distinct opponents by year:
+          how many bouts fenced, win/loss, ration;
+          how many touch /touched, ratio
+    """
+
+    if table_conn is None or firstname is None or lastname is None:
+        return False
+
+    """
+        self.year = 0
+        self.total_event = 0
+        self.total_bout = 0
+        self.total_opponent = 0
+        self.total_win = 0
+        self.total_loss = 0
+        self.total_touch = 0
+        self.total_touched = 0
+        self.place_64 = 0
+        self.place_32 = 0
+        self.place_16 = 0
+        self.place_8 = 0
+        self.place_4 = 0
+        self.place_2 = 0
+        self.place_1 = 0
+    """
+
+    overall_stat = Stats()
+
+    table_conn.row_factory=sqlite3.Row
+    table_cur = table_conn.cursor()
+    # find out fencer_id from name 
+    if membership_id:
+        fencer = getFencerByUSFAId(table_cur, membership_id)
+    else:
+        fencer = getFencerByName(table_cur, firstname, lastname, club)
+
+    # total bouts
+    table_cur.execute('SELECT * FROM bouts WHERE fencer1_id=? OR fencer2_id=?', (fencer.id, fencer.id)) 
+    bouts = table_cur.fetchall()
+    overall_stat.total_bout = len(bouts)
+
+    event_list = []
+    opponent_list = []
+    year_list = []
+    for bout in bouts:
+        is_win = 0
+        year = 0
+        tour_id = int(bout[6])
+        print(isinstance(tour_id, int))
+        table_cur.execute('SELECT * FROM tournament WHERE tournament_id=?', 25242)
+        tournament = table_cur.fetchone()
+        if tournament:
+            year = tournament[4]
+
+        if year_list[year] == None:
+            year_list[year] = Stats()
+
+        stat = Stats()
+        stat.year = year
+        if fencer.id == bout[0]:
+            if bout[2] > bout[3]:
+                stat.total_win = 1
+                is_win = 1
+            else:
+                stat.total_loss = 1
+            stat.total_touch = bout[2]
+            stat.total_touched = bout[3] 
+
+        if fencer.id == bout[1]:
+            if bout[3] > bout[2]:
+                stat.total_win = 1
+                is_win = 1
+            else:
+                stat.total_loss = 1
+            stat.total_touch = bout[3]
+            stat.total_touched = bout[2] 
+
+        if bout[4] != 0:
+            stat.total_de_bout = 1
+        if bout[4] == 64:
+            stat.place_64 = 1
+        elif bout[4] == 32:
+            stat.place_32 = 1
+        elif bout[4] == 16:
+            stat.place_16 = 1
+        elif bout[4] == 8:
+            stat.place_8 = 1
+        elif bout[4] == 4:
+            stat.place_4 = 1
+        elif bout[4] == 2:
+            stat.place_2 = 1
+            if is_win:
+                stat.place_1 = 1
+
+        year_list[year] += stat
+        overall_stat += stat
+
+    overall_stat.print_summary()
+    for year, stat in year_list.items():
+        stat.print_summary()
