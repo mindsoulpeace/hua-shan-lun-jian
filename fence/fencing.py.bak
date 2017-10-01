@@ -1,0 +1,106 @@
+import sys
+import os
+import urllib
+import sqlite3
+from optparse import OptionParser
+import askfred
+import liveresult
+import query
+
+def walkdirtree(url=None, table_conn=None, callback=None):
+    if url is None or table_conn is None or callback is None:
+        return
+
+    for f in os.listdir(url):
+        pathname = os.path.join(url, f)
+        if os.path.isdir(pathname):
+            # it is a dir, recurse
+            walkdirtree(pathname, table_conn, callback)
+        elif os.path.isfile(pathname) and "htm" in pathname and "index" not in pathname and "TM" not in pathname and "WC-" not in pathname:
+            callback("file://"+pathname, table_conn)
+        else:
+            print ("Skipping %s" % pathname)
+
+def main():
+    """
+    Execute from the command line invocation.
+    """
+
+    parser = OptionParser()
+    parser.add_option("--askfred", default=None, help="crawl askfred")
+    parser.add_option("--end", default=None, help="crawl askfred")
+    parser.add_option("--usfa", default=None, help="import usfa tournament")
+    parser.add_option("--fencerlist", default=None, help="import USFA fencer list")
+    parser.add_option("--report", default=None, help="generate report for")
+    parser.add_option("--create", default=None, help="create database from scratch")
+    parser.add_option("--url", default=None, help="url")
+    parser.add_option("--firstname", default=None, help="firstname")
+    parser.add_option("--lastname", default=None, help="lastname")
+    parser.add_option("--membership_id", default=None, help="USFA membership id")
+    parser.add_option("--club", default=None, help="club")
+
+    (options, args) = parser.parse_args()
+
+    askfred_conn = sqlite3.connect('result-askfred.db')
+    usfa_conn = sqlite3.connect('result-usfa.db')
+
+    if options.askfred:
+        if options.create:
+            c = askfred_conn.cursor()
+            c.execute('''CREATE TABLE fencers (askfred_id int, firstname text, lastname text, club text, rating text, PRIMARY KEY(askfred_id ASC))''')
+
+            c.execute('''CREATE TABLE bouts (fencer1_id int, fencer2_id int, touch1 int, touch2 int, round int, weapon text, tournament_id int, event_id int, PRIMARY KEY(fencer1_id ASC, fencer2_id ASC, tournament_id ASC, event_id ASC))''')
+
+            c.execute('''CREATE TABLE tournament (tournament_id int, name text, month int, day int, year int, PRIMARY KEY(tournament_id ASC))''')
+
+            askfred_conn.commit()
+
+        if options.url:
+            tournament_id = int(options.url.split("=", 1)[1])
+            url_template = options.url.split("=", 1)[0]
+            if options.end:
+                end_of_search = int(options.end)
+            else:
+                end_of_search = tournament_id
+
+            while tournament_id <= end_of_search:
+                tournament_url = url_template + "=" + str(tournament_id)
+                print("processing tournament:" + tournament_url)
+                askfred.handleAskfredResult(url=tournament_url, table_conn=askfred_conn, tournament_id=tournament_id)
+                tournament_id += 1
+
+        askfred_conn.commit()
+
+        if options.report:
+            query.generateReport(askfred_conn, None, options.firstname, options.lastname, options.club)
+
+        askfred_conn.close()
+
+    if options.usfa:
+        if options.create:
+            c = usfa_conn.cursor()
+            c.execute('CREATE TABLE fencers (membership_number int, firstname text, lastname text, middlename text, suffix text, gender text, homeclub text, citizenship, saberrate text, epeerate text, foilrate text, PRIMARY KEY(membership_number ASC))')
+            c.execute('CREATE TABLE bouts (fencer1_id text, fencer2_id text, touch1 int, touch2 int, round int, weapon text, tournament_id text, event_id text, PRIMARY KEY(fencer1_id ASC, fencer2_id ASC, tournament_id ASC, event_id ASC))')
+            c.execute('CREATE TABLE tournament (tournament_id text, name text, month int, day int, year int, PRIMARY KEY(tournament_id ASC))')
+            usfa_conn.commit()
+
+        if options.fencerlist:
+            liveresult.handleUSFAFencerList(url=options.fencerlist, table_conn=usfa_conn)
+
+        if options.url:
+            if os.path.isfile(options.url):
+                url = "file://" + options.url
+                liveresult.handleUSFAResult(url=url, table_conn=usfa_conn)
+            elif os.path.isdir(options.url):
+                walkdirtree(url=options.url, table_conn=usfa_conn, callback=liveresult.handleUSFAResult)
+
+        usfa_conn.commit()
+        if options.report:
+            query.generateReport(usfa_conn, options.membership_id, options.firstname, options.lastname)
+
+        usfa_conn.close()
+
+
+if __name__ == "__main__":
+    exit(main())
+

@@ -1,0 +1,2 @@
+askfred: 25000
+usfa: DEC-NAC
