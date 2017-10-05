@@ -25,7 +25,7 @@ def main():
     """
     Execute from the command line invocation.
     """
-
+    print("run from", pathname)
     parser = OptionParser()
     parser.add_option("--askfred", default=None, help="crawl askfred")
     parser.add_option("--end", default=None, help="crawl askfred")
