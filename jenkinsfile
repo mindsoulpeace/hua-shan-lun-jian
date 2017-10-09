@@ -1,0 +1,8 @@
+
+node {
+    stage 'check out'
+         echo 'check out the git repository'
+         git clone https://github.com/mindsoulpeace/hua-shan-lun-jian.git
+    stage 'run'
+         echo 'run something'
+}
